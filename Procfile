@@ -1,1 +1,1 @@
-web: functions-framework --target=process_audio_for_subtitles --port=$PORT
+web: functions-framework --target=orchestrate_video_creation --port=$PORT
