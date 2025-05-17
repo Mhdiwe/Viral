@@ -1,4 +1,4 @@
-print("DEBUG: main.py starting to load - GCF for FULL VIDEO ORCHESTRATION (Verbose JSON Assembly)")
+print("DEBUG: main.py starting to load - GCF for FULL VIDEO ORCHESTRATION (Refined TitleAsset)")
 
 import functions_framework
 print("DEBUG: imported functions_framework")
@@ -10,14 +10,13 @@ import json
 print("DEBUG: imported json")
 import time
 print("DEBUG: imported time")
-# import io # Not needed
 
 try:
     from google.cloud import storage
     print("DEBUG: imported google.cloud.storage")
 except Exception as e_general:
     print(f"DEBUG: CRITICAL ERROR importing google.cloud.storage: {e_general}")
-    raise
+    raise 
 
 try:
     from google.cloud import speech_v1p1beta1 as speech
@@ -35,31 +34,19 @@ except Exception as e_general:
 
 print("DEBUG: All top-level imports attempted and hopefully succeeded.")
 
-# Expected in request from WordPress
 FISH_AUDIO_API_KEY_PARAM = "fish_audio_api_key"
 SHOTSTACK_API_KEY_PARAM = "shotstack_api_key"
 SHOTSTACK_ENV_PARAM = "shotstack_environment"
-
 GCS_BUCKET_NAME = os.environ.get("GCS_BUCKET_NAME")
 
-storage_client = None
-speech_client = None
+storage_client = None; speech_client = None
 try:
-    if not GCS_BUCKET_NAME:
-        print("DEBUG: CRITICAL - GCS_BUCKET_NAME environment variable is NOT SET!")
-        raise ValueError("GCS_BUCKET_NAME environment variable not set.")
-    storage_client = storage.Client()
-    print("DEBUG: google.cloud.storage.Client() initialized successfully.")
-except Exception as e:
-    print(f"DEBUG: CRITICAL - FAILED to initialize google.cloud.storage.Client(): {e}")
-    raise
-
+    if not GCS_BUCKET_NAME: raise ValueError("GCS_BUCKET_NAME environment variable not set.")
+    storage_client = storage.Client(); print("DEBUG: google.cloud.storage.Client() initialized.")
+except Exception as e: print(f"DEBUG: CRITICAL - FAILED to init storage.Client(): {e}"); raise
 try:
-    speech_client = speech.SpeechClient()
-    print("DEBUG: google.cloud.speech.SpeechClient() initialized successfully.")
-except Exception as e:
-    print(f"DEBUG: CRITICAL - FAILED to initialize google.cloud.speech.SpeechClient(): {e}")
-    raise
+    speech_client = speech.SpeechClient(); print("DEBUG: google.cloud.speech.SpeechClient() initialized.")
+except Exception as e: print(f"DEBUG: CRITICAL - FAILED to init speech.SpeechClient(): {e}"); raise
 
 def format_time_srt(seconds_float):
     if not isinstance(seconds_float, (int, float)) or seconds_float < 0: seconds_float = 0.0
@@ -79,7 +66,7 @@ def map_shotstack_voice_py(vvc_voice_id):
         'ecf8af242b724e02ad6b549fa83d2e53': 'Joanna', '9352405796474d61af744235c352eba1': 'Joey',
     }
     default_shotstack_voice = 'Joanna'; selected_voice = voice_map.get(vvc_voice_id, default_shotstack_voice)
-    print(f"DEBUG GCF Voice Map: VVC ID '{vvc_voice_id}' mapped to Shotstack Voice '{selected_voice}'")
+    print(f"DEBUG GCF Voice Map: VVC ID '{vvc_voice_id}' mapped to SS Voice '{selected_voice}'")
     return selected_voice
 
 def map_font_for_shotstack_py(vvc_font_style):
@@ -88,13 +75,14 @@ def map_font_for_shotstack_py(vvc_font_style):
 
 def map_color_py(color_theme_choice, element_type = 'text'):
     themes = {
-        'vibrant': { 'text': '#FFFFFF', 'background': '#FF3D00', 'subtitle_bg_hex': '#1A1A1A' },
-        'pastel': { 'text': '#3E2723', 'background': '#FFF9C4', 'subtitle_bg_hex': '#404040' },
-        'monochrome': { 'text': '#FFFFFF', 'background': '#000000', 'subtitle_bg_hex': '#222222' },
-        'dark_mode': { 'text': '#E0E0E0', 'background': '#121212', 'subtitle_bg_hex': '#050505' },
+        'vibrant': { 'text': '#FFFFFF', 'background': '#FF3D00', 'subtitle_bg_hex': '#1A1A1A', 'subtitle_bg_opacity': 0.7 },
+        'pastel': { 'text': '#3E2723', 'background': '#FFF9C4', 'subtitle_bg_hex': '#303030', 'subtitle_bg_opacity': 0.65 },
+        'monochrome': { 'text': '#FFFFFF', 'background': '#000000', 'subtitle_bg_hex': '#0A0A0A', 'subtitle_bg_opacity': 0.8 },
+        'dark_mode': { 'text': '#E0E0E0', 'background': '#121212', 'subtitle_bg_hex': '#000000', 'subtitle_bg_opacity': 0.75 },
     }
     default_theme_key = 'monochrome'; chosen_theme_data = themes.get(color_theme_choice, themes[default_theme_key])
     if element_type == 'subtitle_bg_hex': return chosen_theme_data['subtitle_bg_hex']
+    if element_type == 'subtitle_bg_opacity': return chosen_theme_data.get('subtitle_bg_opacity', 0.75) # Default opacity
     return chosen_theme_data.get(element_type, chosen_theme_data['text'])
 
 @functions_framework.http
@@ -103,8 +91,7 @@ def orchestrate_video_creation(request):
     start_time_total_gcf = time.time()
 
     if not all([storage_client, speech_client, GCS_BUCKET_NAME]):
-        err_msg = "GCF critical component (Storage/Speech client or GCS_BUCKET_NAME) not available/initialized."
-        print(f"DEBUG GCF ERROR: {err_msg}"); return (json.dumps({"success": False, "error": err_msg}), 500, {'Content-Type': 'application/json'})
+        err_msg = "GCF critical component not initialized."; print(f"DEBUG GCF ERROR: {err_msg}"); return (json.dumps({"success": False, "error": err_msg}), 500, {'Content-Type': 'application/json'})
 
     request_json = request.get_json(silent=True)
     if not request_json: return (json.dumps({"success": False, "error": "Invalid JSON body"}), 400, {'Content-Type': 'application/json'})
@@ -115,84 +102,54 @@ def orchestrate_video_creation(request):
     fish_audio_api_key = request_json.get(FISH_AUDIO_API_KEY_PARAM)
     shotstack_api_key = request_json.get(SHOTSTACK_API_KEY_PARAM)
     shotstack_env = request_json.get(SHOTSTACK_ENV_PARAM, "stage")
-    
     pexels_urls = request_json.get("pexels_urls", [])
     music_url_from_wp = request_json.get("music_url")
     font_style_choice = request_json.get("font_style", "Roboto")
     color_theme_choice = request_json.get("color_theme", "monochrome")
     estimated_visual_duration = float(request_json.get("estimated_visual_duration", 30.0))
 
-    required_params = {
-        "script_text": script_text, "fish_audio_voice_id": fish_audio_voice_id,
-        FISH_AUDIO_API_KEY_PARAM: fish_audio_api_key, SHOTSTACK_API_KEY_PARAM: shotstack_api_key
-    }
+    required_params = {"script_text": script_text, "fish_audio_voice_id": fish_audio_voice_id, FISH_AUDIO_API_KEY_PARAM: fish_audio_api_key, SHOTSTACK_API_KEY_PARAM: shotstack_api_key}
     missing_params = [k for k, v in required_params.items() if not v]
-    if missing_params:
-        return (json.dumps({"success": False, "error": f"Missing critical parameters from WP: {', '.join(missing_params)}"}), 400, {'Content-Type': 'application/json'})
+    if missing_params: return (json.dumps({"success": False, "error": f"Missing params: {', '.join(missing_params)}"}), 400, {'Content-Type': 'application/json'})
 
     # --- 1. Fish.audio Voiceover & Duration ---
+    # ... (Exact same Fish.audio, GCS upload, Mutagen logic as previous main.py) ...
     print("DEBUG GCF: Processing Fish.audio VO...")
-    fish_audio_api_endpoint = 'https://api.fish.audio/v1/tts'
-    fish_payload = {"text": script_text, "format": "mp3", "reference_id": fish_audio_voice_id}
-    fish_headers = {'Authorization': f'Bearer {fish_audio_api_key}', 'Content-Type': 'application/json', 'Accept': 'audio/mpeg'}
-    mp3_content = None; fish_audio_gcs_uri = None; fish_audio_public_url = None
+    fish_audio_api_endpoint = 'https://api.fish.audio/v1/tts'; fish_payload = {"text": script_text, "format": "mp3", "reference_id": fish_audio_voice_id}; fish_headers = {'Authorization': f'Bearer {fish_audio_api_key}', 'Content-Type': 'application/json', 'Accept': 'audio/mpeg'}; mp3_content = None; fish_audio_gcs_uri = None; fish_audio_public_url = None
     try:
-        fish_response = requests.post(fish_audio_api_endpoint, json=fish_payload, headers=fish_headers, timeout=120)
-        fish_response.raise_for_status()
-        if 'audio/mpeg' not in fish_response.headers.get('Content-Type', '').lower():
-            raise ValueError(f"Fish.audio did not return MP3. CT: {fish_response.headers.get('Content-Type','')}. Status: {fish_response.status_code}.")
-        mp3_content = fish_response.content
-        print(f"DEBUG GCF: Fetched MP3 from Fish.audio, size: {len(mp3_content)}")
-    except Exception as e:
-        print(f"DEBUG GCF: Fish.audio API request failed: {e}")
-        return (json.dumps({"success": False, "error": f"Fish.audio API request failed: {str(e)[:200]}"}), 500, {'Content-Type': 'application/json'})
-
-    timestamp = int(time.time()); gcs_blob_name = f"fish-audio-vo/vo_{timestamp}_{fish_audio_voice_id}.mp3"
-    bucket = storage_client.bucket(GCS_BUCKET_NAME); mp3_blob = bucket.blob(gcs_blob_name)
+        fish_response = requests.post(fish_audio_api_endpoint, json=fish_payload, headers=fish_headers, timeout=120); fish_response.raise_for_status()
+        if 'audio/mpeg' not in fish_response.headers.get('Content-Type', '').lower(): raise ValueError(f"Fish.audio no MP3. CT: {fish_response.headers.get('Content-Type','')}, Status: {fish_response.status_code}.")
+        mp3_content = fish_response.content; print(f"DEBUG GCF: Fetched MP3 from Fish.audio, size: {len(mp3_content)}")
+    except Exception as e: print(f"DEBUG GCF: Fish.audio API fail: {e}"); return (json.dumps({"success": False, "error": f"Fish.audio API fail: {str(e)[:200]}"}), 500, {'Content-Type': 'application/json'})
+    timestamp = int(time.time()); gcs_blob_name = f"fish-audio-vo/vo_{timestamp}_{fish_audio_voice_id}.mp3"; bucket = storage_client.bucket(GCS_BUCKET_NAME); mp3_blob = bucket.blob(gcs_blob_name)
     try:
-        mp3_blob.upload_from_string(mp3_content, content_type='audio/mpeg')
-        fish_audio_gcs_uri = f"gs://{GCS_BUCKET_NAME}/{gcs_blob_name}"
-        fish_audio_public_url = f"https://storage.googleapis.com/{GCS_BUCKET_NAME}/{gcs_blob_name}"
-        print(f"DEBUG GCF: Uploaded Fish.audio MP3 to {fish_audio_gcs_uri}")
-    except Exception as e:
-        print(f"DEBUG GCF: Failed to upload to GCS: {e}")
-        return (json.dumps({"success": False, "error": f"Failed to upload audio to GCS: {str(e)[:200]}"}), 500, {'Content-Type': 'application/json'})
-    
-    audio_duration_seconds = 0.0; temp_mp3_path = f"/tmp/temp_vo_{timestamp}.mp3" # GCF has /tmp
+        mp3_blob.upload_from_string(mp3_content, content_type='audio/mpeg'); fish_audio_gcs_uri = f"gs://{GCS_BUCKET_NAME}/{gcs_blob_name}"; fish_audio_public_url = f"https://storage.googleapis.com/{GCS_BUCKET_NAME}/{gcs_blob_name}"; print(f"DEBUG GCF: Uploaded Fish MP3 to {fish_audio_gcs_uri}")
+    except Exception as e: print(f"DEBUG GCF: GCS Upload fail: {e}"); return (json.dumps({"success": False, "error": f"GCS Upload fail: {str(e)[:200]}"}), 500, {'Content-Type': 'application/json'})
+    audio_duration_seconds = 0.0; temp_mp3_path = f"/tmp/temp_vo_{timestamp}.mp3"
     try:
         with open(temp_mp3_path, 'wb') as f: f.write(mp3_content)
         audio_file_for_duration = MP3(temp_mp3_path)
         if audio_file_for_duration.info: audio_duration_seconds = float(audio_file_for_duration.info.length)
-        else: print("DEBUG GCF Mutagen: MP3.info was None.")
-        os.remove(temp_mp3_path) # Clean up temp file
-        print(f"DEBUG GCF: Audio duration from mutagen: {audio_duration_seconds}s")
-    except Exception as e:
-        print(f"DEBUG GCF: Mutagen error: {e}. Will rely on S2T or estimate if S2T fails for duration.")
-        if os.path.exists(temp_mp3_path): os.remove(temp_mp3_path)
-    
-    if audio_duration_seconds <= 0.1:
-        audio_duration_seconds = len(script_text.split()) / 3.0 
-        print(f"DEBUG GCF: Mutagen failed/invalid, using script length estimate for duration: {audio_duration_seconds}s")
-        if audio_duration_seconds <=0.1: audio_duration_seconds = 15.0
+        else: print("DEBUG GCF Mutagen: MP3.info None.")
+        os.remove(temp_mp3_path); print(f"DEBUG GCF: Duration(mutagen): {audio_duration_seconds}s")
+    except Exception as e: print(f"DEBUG GCF: Mutagen error: {e}.");_ = os.path.exists(temp_mp3_path) and os.remove(temp_mp3_path)
+    if audio_duration_seconds <= 0.1: audio_duration_seconds = len(script_text.split()) / 3.0; print(f"DEBUG GCF: Mutagen fail, script est. duration: {audio_duration_seconds}s"); audio_duration_seconds = max(10.0, audio_duration_seconds) # Min 10s if estimate
 
     # --- 2. Google Speech-to-Text & SRT Data Generation ---
-    print(f"DEBUG GCF: Processing Speech-to-Text for {fish_audio_gcs_uri} (duration: {audio_duration_seconds}s)...")
-    recognition_config = speech.RecognitionConfig(encoding=speech.RecognitionConfig.AudioEncoding.MP3, language_code="en-US", enable_word_time_offsets=True, model="video")
-    audio_source = speech.RecognitionAudio(uri=fish_audio_gcs_uri)
-    srt_segments = []; last_word_end_time_for_duration_calc = 0.0
+    print(f"DEBUG GCF: S2T for {fish_audio_gcs_uri} (dur: {audio_duration_seconds}s)...")
+    # ... (Exact same S2T logic and SRT segment generation as previous main.py) ...
+    recognition_config = speech.RecognitionConfig(encoding=speech.RecognitionConfig.AudioEncoding.MP3, language_code="en-US", enable_word_time_offsets=True, model="video"); audio_source = speech.RecognitionAudio(uri=fish_audio_gcs_uri); srt_segments = []; last_word_end_time_for_duration_calc = 0.0
     try:
-        operation = speech_client.long_running_recognize(config=recognition_config, audio=audio_source)
-        print("DEBUG GCF: Waiting for Speech-to-Text..."); stt_response = operation.result(timeout=300); print("DEBUG GCF: Speech-to-Text completed.")
+        operation = speech_client.long_running_recognize(config=recognition_config, audio=audio_source); print("DEBUG GCF: Waiting for S2T..."); stt_response = operation.result(timeout=300); print("DEBUG GCF: S2T completed.")
         current_line_text = ""; current_line_start_time = -1.0; max_chars_per_line = 40; max_duration_per_line_seconds = 6.0; min_duration_per_line_seconds = 0.5
         for result_idx, result in enumerate(stt_response.results):
-            if not result.alternatives or not result.alternatives[0].words: print(f"DEBUG GCF S2T: Result {result_idx} no words/alternatives."); continue
+            if not result.alternatives or not result.alternatives[0].words: print(f"DEBUG GCF S2T: Result {result_idx} no words/alts."); continue
             for word_idx, word_info in enumerate(result.alternatives[0].words):
                 word = word_info.word; start_time = word_info.start_time.total_seconds(); end_time = word_info.end_time.total_seconds()
                 if current_line_start_time < 0: current_line_start_time = start_time
                 force_break = (word.endswith(('.', '!', '?')) and len(current_line_text) > 10)
                 if current_line_text and (len(current_line_text + " " + word) > max_chars_per_line or (end_time - current_line_start_time) > max_duration_per_line_seconds or force_break):
-                    line_actual_end_time = last_word_end_time_for_duration_calc
-                    line_duration = line_actual_end_time - current_line_start_time
+                    line_actual_end_time = last_word_end_time_for_duration_calc; line_duration = line_actual_end_time - current_line_start_time
                     if line_duration >= min_duration_per_line_seconds: srt_segments.append({ "text": current_line_text.strip(), "start_seconds": round(current_line_start_time, 3), "end_seconds": round(line_actual_end_time, 3), "duration_seconds": round(line_duration, 3) })
                     current_line_text = word; current_line_start_time = start_time
                 else: current_line_text += (" " + word) if current_line_text else word
@@ -200,124 +157,79 @@ def orchestrate_video_creation(request):
         if current_line_text and current_line_start_time >= 0:
             line_duration = last_word_end_time_for_duration_calc - current_line_start_time
             if line_duration >= min_duration_per_line_seconds: srt_segments.append({ "text": current_line_text.strip(), "start_seconds": round(current_line_start_time, 3), "end_seconds": round(last_word_end_time_for_duration_calc, 3), "duration_seconds": round(line_duration, 3) })
-        
         if stt_response.results and stt_response.results[-1].alternatives and stt_response.results[-1].alternatives[0].words:
             s2t_end_time = stt_response.results[-1].alternatives[0].words[-1].end_time.total_seconds()
-            if s2t_end_time > audio_duration_seconds : audio_duration_seconds = s2t_end_time; print(f"DEBUG GCF: Audio duration updated from S2T to {audio_duration_seconds}s")
-        print(f"DEBUG GCF: Generated {len(srt_segments)} SRT segments. Final audio duration for timeline: {audio_duration_seconds}s")
+            if s2t_end_time > 0.1 : audio_duration_seconds = s2t_end_time; print(f"DEBUG GCF: Audio duration updated from S2T to {audio_duration_seconds}s") # Prefer S2T duration if available
+        print(f"DEBUG GCF: Generated {len(srt_segments)} SRT segments. Final audio duration: {audio_duration_seconds}s")
     except Exception as e:
-        print(f"DEBUG GCF: Speech-to-Text processing failed: {e}")
-        try: mp3_blob.delete(); print(f"DEBUG GCF: Deleted GCS object {gcs_blob_name} after STT failure.")
-        except Exception as e_del: print(f"DEBUG GCF: Failed to delete GCS object {gcs_blob_name}: {e_del}")
-        return (json.dumps({"success": False, "error": f"Speech-to-Text processing failed: {str(e)[:200]}"}), 500, {'Content-Type': 'application/json'})
-
+        print(f"DEBUG GCF: S2T processing fail: {e}");_ = mp3_blob and mp3_blob.delete(); return (json.dumps({"success": False, "error": f"S2T processing fail: {str(e)[:200]}"}), 500, {'Content-Type': 'application/json'})
     if audio_duration_seconds <= 0.1: return (json.dumps({"success": False, "error": "Failed to determine valid audio duration."}), 500, {'Content-Type': 'application/json'})
 
     # --- 3. Assemble Shotstack JSON ---
-    print("DEBUG GCF: Starting to Assemble Shotstack JSON...")
-    shotstack_video_clips = []; num_visual_clips = len(pexels_urls); visual_start_time = 0
-    # Visuals are timed against the *actual* determined audio duration
-    visual_total_duration = audio_duration_seconds
-    print(f"DEBUG GCF JSON Assembly: Visual total duration set to: {visual_total_duration}")
-    
+    print("DEBUG GCF: Assembling Shotstack JSON...")
+    # ... (Pexels clips assembly - same as previous) ...
+    shotstack_video_clips = []; num_visual_clips = len(pexels_urls); visual_start_time = 0; visual_total_duration = audio_duration_seconds
     if num_visual_clips > 0:
         visual_clip_len = round(visual_total_duration / num_visual_clips, 2) if num_visual_clips > 0 else visual_total_duration
-        print(f"DEBUG GCF JSON Assembly: Pexels - num_visual_clips: {num_visual_clips}, visual_clip_len: {visual_clip_len}")
         for i, p_url in enumerate(pexels_urls):
-            current_len = visual_clip_len
+            current_len = visual_clip_len;
             if i == num_visual_clips - 1: current_len = round(visual_total_duration - visual_start_time, 2)
-            if current_len <= 0.1: print(f"DEBUG GCF JSON Assembly: Skipping Pexels clip {i} due to short length: {current_len}"); continue
-            shotstack_video_clips.append({
-                "asset": {"type": "video", "src": p_url, "volume": 0},
-                "start": round(visual_start_time, 2), "length": current_len,
-                "transition": {"in": "fade" if i > 0 else "none"}, "fit": "cover"
-            })
+            if current_len <= 0.1: continue
+            shotstack_video_clips.append({"asset": {"type": "video", "src": p_url, "volume": 0},"start": round(visual_start_time, 2), "length": current_len, "transition": {"in": "fade" if i > 0 else "none"}, "fit": "cover"})
             visual_start_time += current_len
-    else:
-        print("DEBUG GCF JSON Assembly: No Pexels URLs, creating fallback visual.")
-        shotstack_video_clips.append({
-            "asset": {"type": "html", "html": f"<body style='background-color:{map_color_py(color_theme_choice, 'background')};'></body>", "width": 576, "height": 1024},
-            "start": 0, "length": visual_total_duration
-        })
-    print(f"DEBUG GCF JSON Assembly: Prepared {len(shotstack_video_clips)} video clips for timeline.")
+    else: shotstack_video_clips.append({"asset": {"type": "html", "html": f"<body style='background-color:{map_color_py(color_theme_choice, 'background')};'></body>", "width": 576, "height": 1024},"start": 0, "length": visual_total_duration})
+    print(f"DEBUG GCF JSON: Prepared {len(shotstack_video_clips)} video clips.")
 
     shotstack_title_assets = []
     if srt_segments:
-        print(f"DEBUG GCF JSON Assembly: Processing {len(srt_segments)} SRT segments for TitleAssets.")
-        for i_seg, seg in enumerate(srt_segments):
+        for seg in srt_segments:
             title_len = seg['duration_seconds']; title_start = seg['start_seconds']
-            if title_start >= audio_duration_seconds: print(f"DEBUG GCF JSON Assembly: Skipping SRT segment {i_seg} as start ({title_start}) >= audio_duration ({audio_duration_seconds})"); continue
+            if title_start >= audio_duration_seconds: continue
             if title_start + title_len > audio_duration_seconds: title_len = max(0.2, round(audio_duration_seconds - title_start, 2))
             if title_len > 0.1 :
-                shotstack_title_assets.append({
-                    "asset": { "type": "title", "text": seg['text'], "style": "subtitle", # Using Shotstack's "subtitle" style
-                               "position": "bottom", "size": "small", 
-                               "background": map_color_py(color_theme_choice, 'subtitle_bg_hex'), # Hex for color
-                               "color": map_color_py(color_theme_choice, 'text'),
-                               "font": {"family": map_font_for_shotstack_py(font_style_choice)} # Font family
-                               # Consider adding offset if "subtitle" style doesn't position well enough
-                               # "offset": {"y": -0.1} 
-                               },
-                    "start": title_start, "length": title_len
-                })
-            else: print(f"DEBUG GCF JSON Assembly: Skipping SRT segment {i_seg} due to zero/negative length after adjustment: {title_len}")
-    print(f"DEBUG GCF JSON Assembly: Prepared {len(shotstack_title_assets)} TitleAsset clips.")
+                title_asset = {
+                    "type": "title", "text": seg['text'],
+                    "position": "bottom", 
+                    # Explicit styling instead of "style":"subtitle" for more control
+                    "font": {
+                        "family": map_font_for_shotstack_py(font_style_choice),
+                        "size": "36px", # Explicit size
+                        "color": map_color_py(color_theme_choice, 'text')
+                    },
+                    "background": map_color_py(color_theme_choice, 'subtitle_bg_hex'), # Solid HEX background
+                    "offset": {"y": -0.08} # Push up slightly from bottom
+                }
+                # The 'size' property for TitleAsset itself (small, medium, large) can conflict if font.size is also set.
+                # Let's remove the top-level 'size' for TitleAsset if we define font.size
+                # title_asset["size"] = "small" # Try removing this if font.size is set
 
-    shotstack_timeline_tracks = [
-        {"clips": shotstack_video_clips}, # Track 0: Visuals
-        {"clips": [{"asset": {"type": "audio", "src": fish_audio_public_url, "volume": 1}, "start": 0, "length": audio_duration_seconds }]} # Track 1: VO
-    ]
-    if shotstack_title_assets: shotstack_timeline_tracks.append({"clips": shotstack_title_assets}) # Track 2: Subtitles
-    if music_url_from_wp:
-        shotstack_timeline_tracks.append({ # Track 3 (or 2): Music
-            "clips": [{"asset": {"type": "audio", "src": music_url_from_wp, "volume": 0.12}, "start": 0, "length": audio_duration_seconds }]
-        }) # Music length matches audio_duration_seconds now
+                shotstack_title_assets.append({ "asset": title_asset, "start": title_start, "length": title_len })
+    print(f"DEBUG GCF JSON: Prepared {len(shotstack_title_assets)} TitleAsset clips.")
+
+    shotstack_timeline_tracks = [{"clips": shotstack_video_clips}, {"clips": [{"asset": {"type": "audio", "src": fish_audio_public_url, "volume": 1}, "start": 0, "length": audio_duration_seconds }]}]
+    if shotstack_title_assets: shotstack_timeline_tracks.append({"clips": shotstack_title_assets})
+    if music_url_from_wp: shotstack_timeline_tracks.append({"clips": [{"asset": {"type": "audio", "src": music_url_from_wp, "volume": 0.12}, "start": 0, "length": audio_duration_seconds }]})
     
     shotstack_timeline = { "background": map_color_py(color_theme_choice, 'background'), "tracks": shotstack_timeline_tracks }
-    print("DEBUG GCF JSON Assembly: Timeline structure assembled.")
-    
-    shotstack_render_payload = {
-        "timeline": shotstack_timeline,
-        "output": { "format": "mp4", "resolution": "sd", "aspectRatio": "9:16", "fps": 30, "quality": "medium"}
-    }
-    print("DEBUG GCF JSON Assembly: Final shotstack_render_payload dictionary created.")
+    shotstack_render_payload = { "timeline": shotstack_timeline, "output": { "format": "mp4", "resolution": "sd", "aspectRatio": "9:16", "fps": 30, "quality": "medium"}}
+    print("DEBUG GCF JSON: Final payload dict created.")
     
     try:
         full_json_string = json.dumps(shotstack_render_payload, indent=2)
-        print("DEBUG GCF: Successfully serialized final payload to JSON string.")
-        print("DEBUG GCF: FULL Shotstack JSON Payload to be submitted: " + full_json_string) # Keep this for debugging
-    except Exception as e_json_dump:
-        print(f"DEBUG GCF ERROR: Failed to dump final payload to JSON string: {e_json_dump}")
-        return (json.dumps({"success": False, "error": "Internal error: Failed to serialize data for Shotstack.", "details": str(e_json_dump)}), 500, {'Content-Type': 'application/json'})
+        print("DEBUG GCF: FULL Shotstack JSON Payload to be submitted: " + full_json_string)
+    except Exception as e_json_dump: print(f"DEBUG GCF ERROR: Failed to dump payload to JSON: {e_json_dump}"); return (json.dumps({"success": False, "error": "Internal error: Failed to serialize for Shotstack.", "details": str(e_json_dump)}), 500, {'Content-Type': 'application/json'})
 
     # --- 4. Submit to Shotstack API ---
-    shotstack_stage_url = 'https://api.shotstack.io/stage/render'; shotstack_prod_url = 'https://api.shotstack.io/v1/render'
-    shotstack_api_endpoint = shotstack_stage_url if shotstack_env == 'stage' else shotstack_prod_url
-    shotstack_headers = {'Content-Type': 'application/json', 'Accept': 'application/json', 'x-api-key': shotstack_api_key}
-    
+    # ... (Same Shotstack submission logic as previous main.py) ...
+    shotstack_stage_url = 'https://api.shotstack.io/stage/render'; shotstack_prod_url = 'https://api.shotstack.io/v1/render'; shotstack_api_endpoint = shotstack_stage_url if shotstack_env == 'stage' else shotstack_prod_url; shotstack_headers = {'Content-Type': 'application/json', 'Accept': 'application/json', 'x-api-key': shotstack_api_key}
     print(f"DEBUG GCF: Submitting to Shotstack: {shotstack_api_endpoint}")
     try:
-        ss_response = requests.post(shotstack_api_endpoint, json=shotstack_render_payload, headers=shotstack_headers, timeout=75)
-        ss_response.raise_for_status() 
-        ss_data = ss_response.json()
+        ss_response = requests.post(shotstack_api_endpoint, json=shotstack_render_payload, headers=shotstack_headers, timeout=75); ss_response.raise_for_status(); ss_data = ss_response.json()
         if ss_data.get("success") and ss_data.get("response", {}).get("id"):
-            render_id = ss_data["response"]["id"]
-            print(f"DEBUG GCF: Successfully submitted to Shotstack. Render ID: {render_id}")
-            final_duration_for_wp = audio_duration_seconds
-            end_time_total_gcf = time.time()
-            print(f"DEBUG GCF: Total GCF execution time: {round(end_time_total_gcf - start_time_total_gcf, 2)}s")
+            render_id = ss_data["response"]["id"]; print(f"DEBUG GCF: Submitted to Shotstack. Render ID: {render_id}"); final_duration_for_wp = audio_duration_seconds; end_time_total_gcf = time.time(); print(f"DEBUG GCF: Total GCF execution time: {round(end_time_total_gcf - start_time_total_gcf, 2)}s")
             return (json.dumps({ "success": True, "shotstack_render_id": render_id, "message": "Video submitted to Shotstack.", "final_audio_duration": round(final_duration_for_wp,3) }), 200, {'Content-Type': 'application/json'})
-        else:
-            error_detail = f"Shotstack API success was false or ID missing. Resp: {str(ss_data)[:500]}"
-            print(f"DEBUG GCF ERROR: {error_detail}")
-            return (json.dumps({"success": False, "error": "Shotstack submission issue.", "details": error_detail}), 500, {'Content-Type': 'application/json'})
-    except requests.exceptions.HTTPError as http_err:
-        error_detail = f"Shotstack API HTTP error: {http_err}. Response: {http_err.response.text[:500] if http_err.response else 'No response text'}"
-        print(f"DEBUG GCF ERROR: {error_detail}")
-        return (json.dumps({"success": False, "error": "Shotstack API returned an error.", "details": error_detail}), (http_err.response.status_code if http_err.response else 500) , {'Content-Type': 'application/json'})
-    except requests.exceptions.RequestException as e:
-        error_detail = f"Shotstack API request failed: {e}."
-        print(f"DEBUG GCF ERROR: {error_detail}")
-        return (json.dumps({"success": False, "error": "Shotstack API communication error.", "details": error_detail}), 500, {'Content-Type': 'application/json'})
+        else: error_detail = f"Shotstack API no success/ID. Resp: {str(ss_data)[:500]}"; print(f"DEBUG GCF ERROR: {error_detail}"); return (json.dumps({"success": False, "error": "Shotstack submission issue.", "details": error_detail}), 500, {'Content-Type': 'application/json'})
+    except requests.exceptions.HTTPError as http_err: error_detail = f"Shotstack HTTP error: {http_err}. Resp: {http_err.response.text[:500] if http_err.response else 'No resp text'}"; print(f"DEBUG GCF ERROR: {error_detail}"); return (json.dumps({"success": False, "error": "Shotstack API error.", "details": error_detail}), (http_err.response.status_code if http_err.response else 500) , {'Content-Type': 'application/json'})
+    except requests.exceptions.RequestException as e: error_detail = f"Shotstack req fail: {e}."; print(f"DEBUG GCF ERROR: {error_detail}"); return (json.dumps({"success": False, "error": "Shotstack API comms error.", "details": error_detail}), 500, {'Content-Type': 'application/json'})
 
 print("DEBUG: main.py loaded and orchestrate_video_creation function defined.")
