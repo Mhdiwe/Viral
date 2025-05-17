@@ -23,4 +23,4 @@ COPY main.py .
 # Set the entry point for the functions-framework
 # The Functions Framework will respect the PORT environment variable set by Cloud Run.
 # The Procfile (if still present) would also work, but CMD is more direct for Docker.
-CMD ["functions-framework", "--target=orchestrate_video_with_ffmpeg", "--port=8080"]
+CMD ["functions-framework", "--target=orchestrate_video_with_ffmpeg", "--port=$PORT"]
