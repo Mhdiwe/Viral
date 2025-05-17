@@ -277,7 +277,7 @@ def orchestrate_video_with_ffmpeg(request): # New entry point name
         return (json.dumps({"success": False, "error": "FFmpeg processing timed out."}), 500, {'Content-Type': 'application/json'})
 
 
-    # --- 7. Upload Final Video to GCS ---
+    # --- 7. Uplofad Final Video to GCS ---
     final_video_gcs_blob_name = f"final-videos/viral_video_{request_id}.mp4"
     final_bucket = storage_client.bucket(GCS_FINAL_VIDEO_BUCKET_NAME)
     final_blob = final_bucket.blob(final_video_gcs_blob_name)
