@@ -5,15 +5,12 @@ FROM python:3.11-slim
 WORKDIR /workspace
 
 # Set environment variables for Functions Framework
-# PORT will be provided by Cloud Run. Defaulting here for local testing convenience.
+# PORT will be provided by Cloud Run.
 ENV PORT 8080
-# Ensure the Functions Framework knows it's an HTTP function (though decorator should also handle)
-# ENV GOOGLE_FUNCTION_SIGNATURE_TYPE http # Can be set here or in Cloud Run console
-# Ensure the Functions Framework knows which function to target
-# ENV GOOGLE_FUNCTION_TARGET orchestrate_video_with_ffmpeg # Can be set here or in Cloud Run console
 
 # Install FFmpeg
-RUN apt-get update && apt-get install -y ffmpeg && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Copy the requirements file into the container at /workspace
 COPY requirements.txt .
@@ -22,12 +19,13 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy the rest of the application's code into the container at /workspace
+# This includes main.py
 COPY . .
 
-# Make port 8080 available to the world outside this container
-EXPOSE 8080
+# Make port $PORT available to the world outside this container
+# Cloud Run sets $PORT, typically 8080.
+EXPOSE $PORT
 
-# Define the command to run the application using Functions Framework
-# This will be overridden by Cloud Run if GOOGLE_FUNCTION_TARGET env var is set there.
-# Using $PORT which is an environment variable automatically set by Cloud Run.
+# Define the command to run the application using Functions Framework.
+# This is critical. Ensure --target is correct.
 CMD ["functions-framework", "--target=orchestrate_video_with_ffmpeg", "--port=$PORT"]
