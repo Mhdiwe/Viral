@@ -1,4 +1,4 @@
-print("DEBUG: main.py starting to load - GCF for ULTRA-SIMPLIFIED Shotstack JSON Test (Corrected map_color_py)")
+print("DEBUG: main.py starting to load - GCF for ULTRA-SIMPLIFIED Shotstack JSON Test (Corrected NameError)")
 
 import functions_framework
 print("DEBUG: imported functions_framework")
@@ -28,7 +28,7 @@ print("DEBUG: All top-level imports attempted.")
 
 FISH_AUDIO_API_KEY_PARAM = "fish_audio_api_key"; SHOTSTACK_API_KEY_PARAM = "shotstack_api_key"; SHOTSTACK_ENV_PARAM = "shotstack_environment"
 GCS_BUCKET_NAME = os.environ.get("GCS_BUCKET_NAME")
-storage_client = None; speech_client = None # speech_client not initialized as it's not used
+storage_client = None; speech_client = None
 try:
     if not GCS_BUCKET_NAME: raise ValueError("GCS_BUCKET_NAME environment variable not set.")
     storage_client = storage.Client(); print("DEBUG: google.cloud.storage.Client() initialized.")
@@ -47,26 +47,32 @@ def format_time_srt(seconds_float): # Not used in this simplified test
 def map_shotstack_voice_py(vvc_voice_id): # For Fish.audio call
     voice_map = {'802e3bc2b27e49c2995d23ef70e6ac89': 'Amy', 'f8dfe9c83081432386f143e2fe9767ef': 'Brian', '3b7e2226b65941a4af6c3fc6609b8361': 'Emma', '728f6ff2240d49308e8137ffe66008e2': 'Matthew', '0b74ead073f2474a904f69033535b98e': 'Olivia', '16b2981936f34328886f4f230e7fe196': 'Joanna', '3ce4bfc65d0e483aa880073d2a589745': 'Salli', '9af2433a5d1d4d728fb4c9c82c565315': 'Kimberly', 'af8a334a68a44bb89e07d9865e55272a': 'Ivy', '00731df901a74de5b9b000713f14718c': 'Ruth', 'ef9c79b62ef34530bf452c0e50e3c260': 'Kendra', '6a735fd94f67467eb592567972ee0d51': 'Salli', 'ecf8af242b724e02ad6b549fa83d2e53': 'Joanna', '9352405796474d61af744235c352eba1': 'Joey',}
     default_shotstack_voice = 'Joanna'; selected_voice = voice_map.get(vvc_voice_id, default_shotstack_voice)
-    print(f"DEBUG GCF Voice Map: VVC ID '{vvc_voice_id}' (for Fish.audio) mapped to potential SS Voice '{selected_voice}' for consistency if needed")
+    print(f"DEBUG GCF Voice Map: VVC ID '{vvc_voice_id}' (for Fish.audio) mapped to potential SS Voice '{selected_voice}'")
     return selected_voice
 
-def map_font_for_shotstack_py(vvc_font_style): return 'Arial' # Not used in this simplified test
+def map_font_for_shotstack_py(vvc_font_style): return 'Arial' # Not used by this specific test
 
-# Corrected map_color_py for the ultra-simplified test
-def map_color_py(color_theme_choice, element_type = 'text'):
-    # For this ultra-simplified test, we only care about the main timeline background.
-    # The Shotstack JSON directly sets it to #0000FF (blue).
-    # This function is called by the JSON assembly logic with element_type='background'.
+def map_color_py(color_theme_choice, element_type = 'text'): # For this test, only 'background' matters
+    # This function will effectively always return #0000FF for background
+    # if called by the simplified JSON assembly below.
     if element_type == 'background':
-        return "#0000FF" # Force blue background as defined in the simplified JSON
-    return '#FFFFFF' # Default return for any other case (not used by simplified JSON)
+        # For the ultra-simplified test, the background is hardcoded in the timeline assembly
+        # but we can keep this logic for future use or consistency if color_theme_choice is passed.
+        themes = { # Minimal themes dict just for this example
+            'vibrant': { 'background': '#FF3D00'},
+            'pastel': { 'background': '#FFF9C4'},
+            'monochrome': { 'background': '#000000'},
+            'dark_mode': { 'background': '#121212'},
+        }
+        return themes.get(color_theme_choice, themes['monochrome'])['background']
+    return '#FFFFFF' # Default for other types (not used in simplified JSON)
+
 
 @functions_framework.http
 def orchestrate_video_creation(request): # Entry point name
-    print("DEBUG GCF: orchestrate_video_creation function started (Ultra-Simplified Shotstack JSON Test).")
+    print("DEBUG GCF: orchestrate_video_creation function started (Ultra-Simplified Shotstack JSON Test - NameError Fix).")
     start_time_total_gcf = time.time()
 
-    # Simplified check for this test, speech_client not essential as S2T is skipped
     if not all([storage_client, GCS_BUCKET_NAME]):
         err_msg = "GCF critical component (Storage client or GCS_BUCKET_NAME) not available/initialized."
         print(f"DEBUG GCF ERROR: {err_msg}"); return (json.dumps({"success": False, "error": err_msg}), 500, {'Content-Type': 'application/json'})
@@ -80,6 +86,9 @@ def orchestrate_video_creation(request): # Entry point name
     fish_audio_api_key = request_json.get(FISH_AUDIO_API_KEY_PARAM)
     shotstack_api_key = request_json.get(SHOTSTACK_API_KEY_PARAM)
     shotstack_env = request_json.get(SHOTSTACK_ENV_PARAM, "stage")
+    # Extract color_theme_choice for map_color_py, even if map_color_py hardcodes for this test
+    color_theme_choice = request_json.get("color_theme", "monochrome") # *** ADDED THIS LINE ***
+
 
     required_params = {"script_text": script_text, "fish_audio_voice_id": fish_audio_voice_id, FISH_AUDIO_API_KEY_PARAM: fish_audio_api_key, SHOTSTACK_API_KEY_PARAM: shotstack_api_key}
     missing_params = [k for k, v in required_params.items() if not v]
@@ -113,7 +122,7 @@ def orchestrate_video_creation(request): # Entry point name
     # --- Assemble ULTRA-SIMPLIFIED Shotstack JSON ---
     print("DEBUG GCF: Assembling ULTRA-SIMPLIFIED Shotstack JSON...")
     shotstack_timeline = {
-        "background": map_color_py(color_theme_choice, 'background'), # Uses corrected map_color_py
+        "background": "#0000FF", # Hardcoded blue for this test
         "tracks": [ { "clips": [ { "asset": { "type": "audio", "src": fish_audio_public_url, "volume": 1 }, "start": 0, "length": audio_duration_seconds } ] } ]
     }
     shotstack_render_payload = { "timeline": shotstack_timeline, "output": { "format": "mp4", "resolution": "sd", "aspectRatio": "9:16", "fps": 30, "quality": "medium" } }
