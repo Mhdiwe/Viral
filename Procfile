@@ -1,1 +1,1 @@
-web: functions-framework --target=orchestrate_video_creation --port=$PORT
+web: functions-framework --target=orchestrate_video_with_ffmpeg --port=$PORT
