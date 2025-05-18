@@ -2,27 +2,21 @@ steps:
 - name: 'gcr.io/cloud-builders/docker'
   args: [
     'build',
-    '-t', 'europe-west1-docker.pkg.dev/viral-460106/manual-build-repo/app-explicit-entrypoint:latest',
-    '-t', 'europe-west1-docker.pkg.dev/viral-460106/manual-build-repo/app-explicit-entrypoint:$COMMIT_SHA',
+    '-t', 'europe-west1-docker.pkg.dev/viral-460106/manual-build-repo/app-via-clean-yaml:latest',
+    '-t', 'europe-west1-docker.pkg.dev/viral-460106/manual-build-repo/app-via-clean-yaml:$COMMIT_SHA',
     '.'
   ]
   id: 'Build Docker Image'
-  # This is where we try to force the entrypoint and command if the Dockerfile CMD is ignored
-  entrypoint: 'functions-framework' # The command itself
-  # cmd: is not a direct option here, entrypoint effectively becomes CMD with its own args.
-  # Instead, we pass arguments to the entrypoint via 'args' in the *Cloud Run Service definition later*
-  # OR we hope the Dockerfile's implied use with entrypoint works,
-  # OR we specify it during 'docker run' equivalent (Cloud Run's "args").
 
 # Push the tags
 - name: 'gcr.io/cloud-builders/docker'
-  args: ['push', 'europe-west1-docker.pkg.dev/viral-460106/manual-build-repo/app-explicit-entrypoint:latest']
-  waitFor: ['Build Docker Image'] # Wait for build to finish
+  args: ['push', 'europe-west1-docker.pkg.dev/viral-460106/manual-build-repo/app-via-clean-yaml:latest']
+  waitFor: ['Build Docker Image']
 
 - name: 'gcr.io/cloud-builders/docker'
-  args: ['push', 'europe-west1-docker.pkg.dev/viral-460106/manual-build-repo/app-explicit-entrypoint:$COMMIT_SHA']
+  args: ['push', 'europe-west1-docker.pkg.dev/viral-460106/manual-build-repo/app-via-clean-yaml:$COMMIT_SHA']
   waitFor: ['Build Docker Image']
 
 images:
-- 'europe-west1-docker.pkg.dev/viral-460106/manual-build-repo/app-explicit-entrypoint:$COMMIT_SHA'
-- 'europe-west1-docker.pkg.dev/viral-460106/manual-build-repo/app-explicit-entrypoint:latest'
+- 'europe-west1-docker.pkg.dev/viral-460106/manual-build-repo/app-via-clean-yaml:$COMMIT_SHA'
+- 'europe-west1-docker.pkg.dev/viral-460106/manual-build-repo/app-via-clean-yaml:latest'
